@@ -1,0 +1,171 @@
+name: messenger
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: postgres
+      TZ: UTC
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?RABBITMQ_DEFAULT_USER is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?RABBITMQ_DEFAULT_PASS is required}
+      TZ: UTC
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+    logging: *default-logging
+
+  db-init:
+    image: postgres:17
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD:?USER_DB_PASSWORD is required}
+      CHAT_DB_PASSWORD: ${CHAT_DB_PASSWORD:?CHAT_DB_PASSWORD is required}
+      TZ: UTC
+    volumes:
+      - ./init-db.sh:/init-db.sh:ro
+    entrypoint: ["/bin/sh", "/init-db.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *default-logging
+
+  user-service:
+    image: ghcr.io/messagerteam/backend-user:${IMAGE_TAG:?IMAGE_TAG is required}
+    pull_policy: always
+    init: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      TZ: UTC
+      Jwt__Secret: ${JWT_SECRET:?JWT_SECRET is required}
+      Jwt__Issuer: ${JWT_ISSUER:-messenger}
+      Jwt__Audience: ${JWT_AUDIENCE:-messenger-api}
+      ConnectionStrings__UsersDb: "Host=postgres;Port=5432;Database=messenger_users;Username=user_service;Password=${USER_DB_PASSWORD:?USER_DB_PASSWORD is required}"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  chat-service:
+    image: ghcr.io/messagerteam/backend-chat:${IMAGE_TAG:?IMAGE_TAG is required}
+    pull_policy: always
+    init: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      TZ: UTC
+      Jwt__Secret: ${JWT_SECRET:?JWT_SECRET is required}
+      Jwt__Issuer: ${JWT_ISSUER:-messenger}
+      Jwt__Audience: ${JWT_AUDIENCE:-messenger-api}
+      ConnectionStrings__ChatDb: "Host=postgres;Port=5432;Database=messenger_chat;Username=chat_service;Password=${CHAT_DB_PASSWORD:?CHAT_DB_PASSWORD is required}"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  realtime-service:
+    image: ghcr.io/messagerteam/backend-realtime:${IMAGE_TAG:?IMAGE_TAG is required}
+    pull_policy: always
+    init: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      TZ: UTC
+      Jwt__Secret: ${JWT_SECRET:?JWT_SECRET is required}
+      Jwt__Issuer: ${JWT_ISSUER:-messenger}
+      Jwt__Audience: ${JWT_AUDIENCE:-messenger-api}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  gateway:
+    image: ghcr.io/messagerteam/backend-gateway:${IMAGE_TAG:?IMAGE_TAG is required}
+    pull_policy: always
+    init: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      TZ: UTC
+      Jwt__Secret: ${JWT_SECRET:?JWT_SECRET is required}
+      Jwt__Issuer: ${JWT_ISSUER:-messenger}
+      Jwt__Audience: ${JWT_AUDIENCE:-messenger-api}
+    depends_on:
+      user-service:
+        condition: service_healthy
+      chat-service:
+        condition: service_healthy
+      realtime-service:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+volumes:
+  pg_data:
+  rabbitmq_data:
