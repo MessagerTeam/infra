@@ -1,0 +1,88 @@
+name: Receive Backend Release
+
+on:
+  repository_dispatch:
+    types:
+      - backend_release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: infra-backend-release
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout infra
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download backend release
+        env:
+          GH_TOKEN: ${{ secrets.BACKEND_READ_TOKEN }}
+          VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p /tmp/backend-release
+
+          gh release download "$VERSION" \
+            --repo MessagerTeam/backend \
+            --pattern "backend-deploy-${VERSION}.zip" \
+            --dir /tmp/backend-release
+
+      - name: Prepare release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin backend-release >/dev/null 2>&1; then
+            git fetch origin backend-release
+            git checkout -B backend-release origin/backend-release
+          else
+            git checkout -b backend-release
+          fi
+
+      - name: Update backend deployment
+        env:
+          VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p /tmp/backend-unpacked
+
+          unzip -q \
+            "/tmp/backend-release/backend-deploy-${VERSION}.zip" \
+            -d /tmp/backend-unpacked
+
+          SOURCE="/tmp/backend-unpacked/backend-deploy-${VERSION}"
+          TARGET="deploy/backend"
+
+          test -f "$SOURCE/docker-compose.yml"
+          test -f "$SOURCE/VERSION"
+
+          rm -rf "$TARGET"
+          mkdir -p "$TARGET"
+
+          cp -a "$SOURCE/." "$TARGET/"
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          git add deploy/backend
+
+          if git diff --cached --quiet; then
+            echo "No deployment changes"
+            exit 0
+          fi
+
+          git commit -m "chore(backend): release ${VERSION}"
+          git push origin backend-release
