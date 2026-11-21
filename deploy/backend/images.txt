@@ -1,4 +1,4 @@
-ghcr.io/messagerteam/backend-gateway:v0.1.0-test.4
-ghcr.io/messagerteam/backend-user:v0.1.0-test.4
-ghcr.io/messagerteam/backend-chat:v0.1.0-test.4
-ghcr.io/messagerteam/backend-realtime:v0.1.0-test.4
+ghcr.io/messagerteam/backend-gateway:v0.1.0-test.5
+ghcr.io/messagerteam/backend-user:v0.1.0-test.5
+ghcr.io/messagerteam/backend-chat:v0.1.0-test.5
+ghcr.io/messagerteam/backend-realtime:v0.1.0-test.5
