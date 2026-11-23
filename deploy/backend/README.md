@@ -11,6 +11,7 @@ backend-deploy-v0.1.0/
 ├── docker-compose.yml   # готовые образы + Postgres + RabbitMQ
 ├── .env.example         # шаблон переменных, без секретов
 ├── init-db.sh           # идемпотентно создаёт БД и роли
+├── Makefile             # команды для деплоя
 ├── VERSION              # версия релиза
 ├── images.txt           # точные образы этого релиза
 └── README.md            # этот файл
@@ -56,6 +57,15 @@ cd backend-deploy-v0.1.0
 
 ### 3.2. Создать `.env`
 
+Быстрый вариант:
+
+```bash
+make env
+```
+
+`make env` создаст `.env` из `.env.example` и сгенерирует пароли.
+Если `make` недоступен, используйте команды ниже вручную.
+
 ```bash
 cp .env.example .env
 ```
@@ -89,14 +99,23 @@ echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 ### 3.4. Запуск
 
 ```bash
-docker compose pull
-docker compose up -d
-docker compose ps
+make deploy
+make ps
 ```
 
+`make deploy` делает `docker compose pull` и `docker compose up -d`.
 Проверить gateway:
 
 ```bash
+make health
+```
+
+Или вручную:
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose ps
 curl -fsS http://127.0.0.1:8080/health
 ```
 
